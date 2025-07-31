@@ -43,9 +43,11 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <memory>
 
 #include "options.h"
 #include "cache_simulator_create.h"
+#include "cache_replacement_policy_builder.h"
 
 namespace dynamorio {
 namespace drmemtrace {
@@ -89,6 +91,7 @@ struct cache_params_t {
     // Cache replacement policy as described by the runtime option
     // op_replace_policy (see ../common/options.cpp).
     std::string replace_policy;
+    std::unique_ptr<cache_replacement_policy_builder_base_t> replace_policy_builder;
     // Type of prefetcher as described by the runtime option
     // op_data_prefetcher (see ../common/options.cpp).
     std::string prefetcher;

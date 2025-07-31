@@ -31,6 +31,7 @@
  */
 
 #include "create_cache_replacement_policy.h"
+#include "cache_replacement_policy_builder.h"
 
 #include <memory>
 #include <string>
@@ -41,27 +42,90 @@
 #include "policy_lfu.h"
 #include "policy_lru.h"
 #include "options.h"
+#include "parse_value.h"
 
 namespace dynamorio {
 namespace drmemtrace {
+
+// Template class for construction of cache replacement policy objects.
+// Default implementation is without extra parameters
+template<typename T>
+class cache_replacement_policy_builder_t: public cache_replacement_policy_builder_base_t
+{
+    std::unique_ptr<cache_replacement_policy_t>
+    construct(int num_sets, int associativity) override
+    {
+        return std::unique_ptr<T>(new T(num_sets, associativity));
+    }
+
+    bool
+    configure(const std::string& name, const std::string& value, const std::type_info** type) override
+    {
+        // No extra parameters defined
+        return false;
+    }
+};
+
+template<>
+class cache_replacement_policy_builder_t<policy_bit_plru_t>:
+    public cache_replacement_policy_builder_base_t
+{
+public:
+    std::unique_ptr<cache_replacement_policy_t>
+    construct(int num_sets, int associativity) override
+    {
+        return std::unique_ptr<policy_bit_plru_t>
+            (new policy_bit_plru_t(num_sets, associativity, seed_));
+    }
+
+    bool
+    configure(const std::string& name, const std::string& value, const std::type_info** type) override
+    {
+        if (name == "seed") {
+            if (type) {
+                *type = &typeid(int);
+            }
+            return parse_value<int>(value, &seed_);
+        } else {
+            *type = nullptr;
+            return false;
+        }
+    }
+
+private:
+    int seed_;
+};
+
+std::unique_ptr<cache_replacement_policy_builder_base_t>
+create_cache_replacement_policy_builder(const std::string &policy)
+{
+    // default LRU
+    if (policy.empty() || policy == REPLACE_POLICY_LRU) {
+        using builder = cache_replacement_policy_builder_t<policy_lru_t>;
+        return std::unique_ptr<cache_replacement_policy_builder_base_t>(new builder{});
+    }
+    if (policy == REPLACE_POLICY_LFU) {
+        using builder = cache_replacement_policy_builder_t<policy_lfu_t>;
+        return std::unique_ptr<cache_replacement_policy_builder_base_t>(new builder{});
+    }
+    if (policy == REPLACE_POLICY_FIFO) {
+        using builder = cache_replacement_policy_builder_t<policy_fifo_t>;
+        return std::unique_ptr<cache_replacement_policy_builder_base_t>(new builder{});
+    }
+    if (policy == REPLACE_POLICY_BIT_PLRU) {
+        using builder = cache_replacement_policy_builder_t<policy_bit_plru_t>;
+        return std::unique_ptr<cache_replacement_policy_builder_base_t>(new builder{});
+    }
+    return nullptr;
+}
 
 std::unique_ptr<cache_replacement_policy_t>
 create_cache_replacement_policy(const std::string &policy, int num_sets,
                                 int associativity)
 {
-    // default LRU
-    if (policy.empty() || policy == REPLACE_POLICY_LRU) {
-        return std::unique_ptr<policy_lru_t>(new policy_lru_t(num_sets, associativity));
-    }
-    if (policy == REPLACE_POLICY_LFU) {
-        return std::unique_ptr<policy_lfu_t>(new policy_lfu_t(num_sets, associativity));
-    }
-    if (policy == REPLACE_POLICY_FIFO) {
-        return std::unique_ptr<policy_fifo_t>(new policy_fifo_t(num_sets, associativity));
-    }
-    if (policy == REPLACE_POLICY_BIT_PLRU) {
-        return std::unique_ptr<policy_bit_plru_t>(
-            new policy_bit_plru_t(num_sets, associativity));
+    auto builder = create_cache_replacement_policy_builder(policy);
+    if (builder) {
+        return builder->construct(num_sets, associativity);
     }
     return nullptr;
 }

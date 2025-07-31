@@ -1,5 +1,5 @@
 /* **********************************************************
- * Copyright (c) 2015-2023 Google, Inc.  All rights reserved.
+ * Copyright (c) 2015-2025 Google, Inc.  All rights reserved.
  * **********************************************************/
 
 /*
@@ -30,28 +30,42 @@
  * DAMAGE.
  */
 
-#ifndef _CREATE_CACHE_REPLACEMENT_POLICY_H_
-#define _CREATE_CACHE_REPLACEMENT_POLICY_H_ 1
+// Implementation of Builder pattern for cache replacement policy objects construction
 
-#include <memory>
-#include <string>
+#ifndef _CACHE_REPLACEMENT_POLICY_BUILDER_H_
+#define _CACHE_REPLACEMENT_POLICY_BUILDER_H_
 
 #include "cache_replacement_policy.h"
-#include "cache_replacement_policy_builder.h"
+#include <memory>
+#include <string>
+#include <typeinfo>
 
 namespace dynamorio {
 namespace drmemtrace {
 
-/// Initializes and returns a specific replacement policy.
-std::unique_ptr<cache_replacement_policy_t>
-create_cache_replacement_policy(const std::string &policy, int num_sets,
-                                int associativity);
+// Base class for construction of cache replacement policy object
+class cache_replacement_policy_builder_base_t
+{
+public:
+    cache_replacement_policy_builder_base_t() = default;
+    virtual ~cache_replacement_policy_builder_base_t() = default;
 
-/// Initializes and returns the builder object for a specific replacement policy.
-std::unique_ptr<cache_replacement_policy_builder_base_t>
-create_cache_replacement_policy_builder(const std::string &policy);
+    // Construct the object with specified cache sets and associativity
+    virtual std::unique_ptr<cache_replacement_policy_t>
+    construct(int num_sets, int associativity)=0;
+
+    // Parse specified `value` from string to the type defined for the parameter `name`
+    // and later use it for creation of new cache replacement policy objects.
+    // If specified parameter name is not defined for cache replacement policy,
+    //   returns false and set `*type` to nullptr.
+    // If specified parameter name is defined for policy, but the value cannot be parsed,
+    //   returns false and set `*type` to pointer to the type_info of the expected type.
+    // Otherwise returns true
+    virtual bool
+    configure(const std::string& name, const std::string& value, const std::type_info** type)=0;
+};
 
 } // namespace drmemtrace
 } // namespace dynamorio
 
-#endif /* _CREATE_CACHE_REPLACEMENT_POLICY_H_ */
+#endif

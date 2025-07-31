@@ -1,5 +1,5 @@
 /* **********************************************************
- * Copyright (c) 2015-2023 Google, Inc.  All rights reserved.
+ * Copyright (c) 2015-2025 Google, Inc.  All rights reserved.
  * **********************************************************/
 
 /*
@@ -30,28 +30,36 @@
  * DAMAGE.
  */
 
-#ifndef _CREATE_CACHE_REPLACEMENT_POLICY_H_
-#define _CREATE_CACHE_REPLACEMENT_POLICY_H_ 1
+#ifndef _PARSE_VALUE_H_
+#define _PARSE_VALUE_H_ 1
 
-#include <memory>
 #include <string>
-
-#include "cache_replacement_policy.h"
-#include "cache_replacement_policy_builder.h"
+#include <sstream>
 
 namespace dynamorio {
 namespace drmemtrace {
 
-/// Initializes and returns a specific replacement policy.
-std::unique_ptr<cache_replacement_policy_t>
-create_cache_replacement_policy(const std::string &policy, int num_sets,
-                                int associativity);
+template<typename T>
+bool parse_value(const std::string& val, T* dst) {
+    if (std::is_unsigned<T>::value && val[0] == '-') {
+        // Unsigned value must not start with "minus" sign
+        return false;
+    }
+    std::stringstream ss{val};
+    T res;
+    ss >> res;
+    if(!ss.eof()) {
+        // Not EOF means the value have not extracted correctly
+        return false;
+    }
+    *dst = res;
+    return true;
+}
 
-/// Initializes and returns the builder object for a specific replacement policy.
-std::unique_ptr<cache_replacement_policy_builder_base_t>
-create_cache_replacement_policy_builder(const std::string &policy);
+template<>
+bool parse_value(const std::string& val, bool* dst);
 
 } // namespace drmemtrace
 } // namespace dynamorio
 
-#endif /* _CREATE_CACHE_REPLACEMENT_POLICY_H_ */
+#endif

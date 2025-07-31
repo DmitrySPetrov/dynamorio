@@ -146,6 +146,7 @@ endif ()
 set(client_and_sim_srcs
   common/named_pipe_${os_name}.cpp
   common/options.cpp
+  common/parse_value.cpp
   common/trace_entry.cpp)
 
 # i#2006: we split our tools into libraries for combining as desired in separate

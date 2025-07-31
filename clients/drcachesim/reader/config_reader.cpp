@@ -31,6 +31,10 @@
  */
 
 #include "config_reader.h"
+#include "create_cache_replacement_policy.h"
+#include "parse_value.h"
+
+#include <typeinfo>
 
 namespace dynamorio {
 namespace drmemtrace {
@@ -43,7 +47,7 @@ struct param_t {
     typedef std::map<std::string, param_t> map_t;
 
     enum {STR, MAP} type;   // Is it string value or nested map
-    std::string str;        // Value will be converted to simple type further
+    std::string str;        // Value will be converted to simple type later
     map_t map;              // Nested map
 };
 typedef param_t::map_t param_map_t;
@@ -61,29 +65,10 @@ read_param_val(const std::string& name, const param_t& p, T* dst)
     if (std::is_unsigned<T>::value && p.str[0] == '-') {
         ERRMSG("Unsigned value expected for %s.\n", name.c_str());
     }
-    std::stringstream ss{p.str};
-    ss >> *dst;
-    if(!ss.eof()) {
-        // Not EOF means the value have not extracted correctly
+    if (!parse_value(p.str, dst)) {
         ERRMSG("Incorrect value '%s' for %s, %s value expected.\n",
                 p.str.c_str(), name.c_str(), typeid(*dst).name());
         return false;
-    }
-    return true;
-}
-
-template<> bool
-read_param_val<bool>(const std::string& name, const param_t& p, bool* dst)
-{
-    if (p.type == param_t::MAP) {
-        ERRMSG("Array for %s not supported, %s value expected.\n",
-                name.c_str(), typeid(*dst).name());
-        return false;
-    }
-    if (p.str == "true" || p.str == "True" || p.str == "TRUE") {
-        *dst = true;
-    } else {
-        *dst = false;
     }
     return true;
 }
@@ -251,13 +236,48 @@ configure_cache(const param_map_t &params, cache_params_t *cache)
         } else if (p.first == "replace_policy") {
             // Cache replacement policy: REPLACE_POLICY_LRU (default),
             // REPLACE_POLICY_LFU or REPLACE_POLICY_FIFO.
-            cache->replace_policy = p.second.str;
-            if (cache->replace_policy != REPLACE_POLICY_NON_SPECIFIED &&
-                cache->replace_policy != REPLACE_POLICY_LRU &&
-                cache->replace_policy != REPLACE_POLICY_LFU &&
-                cache->replace_policy != REPLACE_POLICY_FIFO) {
-                ERRMSG("Unknown replacement policy: %s\n", cache->replace_policy.c_str());
+            if (p.second.type != param_t::MAP) {
+                cache->replace_policy = p.second.str;
+            } else {
+                // Read cache->replace_policy from "name"
+                auto it = p.second.map.find("name");
+                if (it != p.second.map.end()) {
+                    cache->replace_policy = it->second.str;
+                } else {
+                    ERRMSG("Cache replacement policy name must be specified.\n");
+                }
+            }
+            cache->replace_policy_builder = 
+                create_cache_replacement_policy_builder(cache->replace_policy);
+            if (!cache->replace_policy_builder) {
+                ERRMSG("Unexpected cache replacement policy: %s\n", cache->replace_policy.c_str());
                 return false;
+            }
+            if (p.second.type == param_t::MAP) {
+                // Read replace policy configuration
+                for (auto & pp: p.second.map) {
+                    if (pp.first == "name") {
+                        continue;
+                    }
+                    if (pp.second.type != param_t::STR) {
+                        ERRMSG("Only scalar parameters supported for cache replacement policy %s\n",
+                               cache->replace_policy.c_str());
+                        return false;
+                    }
+                    const std::type_info* expected_type;
+                    if (!cache->replace_policy_builder->configure(pp.first, pp.second.str,
+                                                                  &expected_type)) {
+                        if (!expected_type) {
+                            ERRMSG("Parameter %s not defined for cache replacement policy %s.\n",
+                                   pp.first.c_str(), cache->replace_policy.c_str());
+                        } else {
+                            ERRMSG("Wrong value %s for parameter %s for cache replacement policy %s. Expected value of type %s.\n",
+                                   pp.second.str.c_str(), pp.first.c_str(),
+                                   cache->replace_policy.c_str(), expected_type->name());
+                        }
+                        return false;
+                    }
+                }
             }
         } else if (p.first == "prefetcher") {
             // Type of prefetcher: PREFETCH_POLICY_NEXTLINE
@@ -445,7 +465,7 @@ config_reader_t::configure(std::istream *config_file, cache_simulator_knobs_t &k
             if (!configure_cache(p.second.map, &cache)) {
                 return false;
             }
-            caches[cache.name] = cache;
+            caches[cache.name] = std::move(cache);
         } else {
             ERRMSG("Unknown parameter %s\n", p.first.c_str());
             return false;
